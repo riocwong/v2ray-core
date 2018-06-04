@@ -5,6 +5,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"time"
+	"runtime/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -101,6 +103,22 @@ func main() {
 			os.Exit(-1)
 		}
 	}
+
+        profileWriter, err := os.Create("profile.log")
+        if err != nil {
+			os.Exit(-1)
+        }
+        go func() {
+            for {
+                select {
+                case <-time.After(time.Duration(15) * time.Second):
+                    profiles := strings.Split("goroutine", ",")
+                    for _, profile := range profiles {
+                        pprof.Lookup(profile).WriteTo(profileWriter, 1)
+                    }
+                }
+            }
+        }()
 
 	server, err := startV2Ray()
 	if err != nil {
