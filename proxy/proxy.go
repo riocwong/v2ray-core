@@ -30,6 +30,10 @@ type Outbound interface {
 	Process(context.Context, *transport.Link, internet.Dialer) error
 }
 
+type GetServerAddresses interface {
+	GetServerAddresses() []net.Destination
+}
+
 // UserManager is the interface for Inbounds and Outbounds that can manage their users.
 type UserManager interface {
 	// AddUser adds a new user.

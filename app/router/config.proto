@@ -111,8 +111,13 @@ message RoutingRule {
 }
 
 message BalancingRule {
+  enum BalancingStrategy {
+    Random = 0;
+    Latency = 1;
+  }
   string tag = 1;
   repeated string outbound_selector = 2;
+  BalancingStrategy balancing_strategy = 3;
 }
 
 message Config {

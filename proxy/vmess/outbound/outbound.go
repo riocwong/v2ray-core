@@ -51,6 +51,10 @@ func New(ctx context.Context, config *Config) (*Handler, error) {
 	return handler, nil
 }
 
+func (v *Handler) GetServerAddresses() []net.Destination {
+	return v.serverList.GetServerAddressList()
+}
+
 // Process implements proxy.Outbound.Process().
 func (v *Handler) Process(ctx context.Context, link *transport.Link, dialer internet.Dialer) error {
 	var rec *protocol.ServerSpec
