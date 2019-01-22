@@ -92,7 +92,8 @@ func (s *LatencyStrategy) measure(ohm outbound.Manager, selectors []string) {
 		servers := make([]Server, 0)
 
 		select {
-		case <-time.After(10 * time.Second):
+		// Measures every 30 seconds.
+		case <-time.After(30 * time.Second):
 			hs, ok := ohm.(outbound.HandlerSelector)
 			if !ok {
 				panic("not selecter")
@@ -108,11 +109,20 @@ func (s *LatencyStrategy) measure(ohm outbound.Manager, selectors []string) {
 					if aob, ok := ob.(proxy.GetServerAddresses); ok {
 						addrs := aob.GetServerAddresses()
 						if len(addrs) > 0 {
-							latency := measureTCPLatency(addrs[0])
+							var totalLatency int64 = 0
+							// Total 5 measures for each server.
+							for i := 0; i < 5; i++ {
+								latency := measureTCPLatency(addrs[0])
+								totalLatency += latency.Nanoseconds()
+								// Waits 1 second between each measure.
+								time.Sleep(1 * time.Second)
+							}
+							avgLatency := time.Duration(int64(float64(totalLatency) / 5))
 							server := Server{
-								latency: latency,
+								latency: avgLatency,
 								tag:     tag,
 							}
+							newError("tag:", server.tag, ", latency:", server.latency.String()).AtDebug().WriteToLog()
 							servers = append(servers, server)
 						} else {
 							panic(fmt.Sprintf("no address for tag %v", tag))
