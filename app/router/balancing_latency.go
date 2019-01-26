@@ -163,6 +163,7 @@ func (s *LatencyStrategy) measure(ohm outbound.Manager, selectors []string) {
 					latency: avgLatency,
 					tag:     tag,
 				}
+				servers = append(servers, server)
 				newError("tag:", server.tag, ", latency:", server.latency.String()).AtDebug().WriteToLog()
 			}
 		}
