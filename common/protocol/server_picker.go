@@ -2,8 +2,6 @@ package protocol
 
 import (
 	"sync"
-
-	"v2ray.com/core/common/net"
 )
 
 type ServerList struct {
@@ -13,17 +11,6 @@ type ServerList struct {
 
 func NewServerList() *ServerList {
 	return &ServerList{}
-}
-
-func (sl *ServerList) GetServerAddressList() []net.Destination {
-	sl.Lock()
-	defer sl.Unlock()
-
-	l := make([]net.Destination, 0)
-	for _, s := range sl.servers {
-		l = append(l, s.Destination())
-	}
-	return l
 }
 
 func (sl *ServerList) AddServer(server *ServerSpec) {

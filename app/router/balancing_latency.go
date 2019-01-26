@@ -1,15 +1,19 @@
 package router
 
 import (
-	"fmt"
+	"context"
 	"sort"
 	"sync"
 	"time"
 
+	"v2ray.com/core/common"
+	"v2ray.com/core/common/buf"
 	"v2ray.com/core/common/dice"
 	"v2ray.com/core/common/net"
+	"v2ray.com/core/common/session"
 	"v2ray.com/core/features/outbound"
-	"v2ray.com/core/proxy"
+	"v2ray.com/core/transport"
+	"v2ray.com/core/transport/pipe"
 )
 
 type Server struct {
@@ -73,17 +77,59 @@ func (s *LatencyStrategy) PickOutbound(tags []string) string {
 	return s.servers[0].tag
 }
 
-func measureTCPLatency(addr net.Destination) time.Duration {
-	dialer := &net.Dialer{
-		Timeout: 5 * time.Second,
+type probeWriter struct {
+	probe chan struct{}
+}
+
+func (w *probeWriter) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		select {
+		case w.probe <- struct{}{}:
+		default:
+		}
 	}
-	start := time.Now()
-	conn, err := dialer.Dial("tcp", addr.NetAddr())
+	return len(p), nil
+}
+
+func measureLatency(handler outbound.Handler) time.Duration {
+	ctx := context.Background()
+	destination, err := net.ParseDestination("tcp:www.google.com:80")
 	if err != nil {
-		return 5 * time.Second
+		panic(err)
+	}
+	ob := &session.Outbound{
+		Target: destination,
+	}
+	ctx = session.ContextWithOutbound(ctx, ob)
+
+	reqReader, reqWriter := pipe.New()
+	payload := buf.New()
+	reqBytes := []byte("HEAD / HTTP/1.1\r\n\r\n")
+	if _, err := payload.Write(reqBytes); err != nil {
+		panic(err)
+	}
+	reqWriter.WriteMultiBuffer(buf.MultiBuffer{payload})
+
+	probe := make(chan struct{}, 1)
+	respWriter := &probeWriter{probe: probe}
+
+	link := &transport.Link{
+		Reader: reqReader,
+		Writer: buf.NewWriter(respWriter),
+	}
+	defer func() {
+		common.Must(common.Close(link.Writer))
+		common.Interrupt(link.Reader)
+	}()
+
+	start := time.Now()
+	go handler.Dispatch(ctx, link)
+	select {
+	case <-probe:
+	case <-time.After(10 * time.Second):
+		return 10 * time.Second
 	}
 	elasped := time.Since(start)
-	conn.Close()
 	return elasped
 }
 
@@ -104,31 +150,20 @@ func (s *LatencyStrategy) measure(ohm outbound.Manager, selectors []string) {
 			}
 			for _, tag := range tags {
 				h := ohm.GetHandler(tag)
-				if gh, ok := h.(proxy.GetOutbound); ok {
-					ob := gh.GetOutbound()
-					if aob, ok := ob.(proxy.GetServerAddresses); ok {
-						addrs := aob.GetServerAddresses()
-						if len(addrs) > 0 {
-							var totalLatency int64 = 0
-							// Total 5 measures for each server.
-							for i := 0; i < 5; i++ {
-								latency := measureTCPLatency(addrs[0])
-								totalLatency += latency.Nanoseconds()
-								// Waits 1 second between each measure.
-								time.Sleep(1 * time.Second)
-							}
-							avgLatency := time.Duration(int64(float64(totalLatency) / 5))
-							server := Server{
-								latency: avgLatency,
-								tag:     tag,
-							}
-							newError("tag:", server.tag, ", latency:", server.latency.String()).AtDebug().WriteToLog()
-							servers = append(servers, server)
-						} else {
-							panic(fmt.Sprintf("no address for tag %v", tag))
-						}
-					}
+				var totalLatency int64 = 0
+				// Total 5 measures for each server.
+				for i := 0; i < 5; i++ {
+					latency := measureLatency(h)
+					totalLatency += latency.Nanoseconds()
+					// Waits 1 second between each measure.
+					time.Sleep(1 * time.Second)
 				}
+				avgLatency := time.Duration(int64(float64(totalLatency) / 5))
+				server := Server{
+					latency: avgLatency,
+					tag:     tag,
+				}
+				newError("tag:", server.tag, ", latency:", server.latency.String()).AtDebug().WriteToLog()
 			}
 		}
 
